@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Responsive Mini-Nuke: Mobile Vertical</title>
+    <title>Mini-Nuke HD: Fixed & Contained</title>
     <style>
         body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
-        canvas { background: #000; width: 100vw; height: 100vh; touch-action: none; }
+        canvas { background: #000; width: 100vw; height: 100vh; }
     </style>
 </head>
 <body>
@@ -15,7 +15,7 @@
 const canvas = document.getElementById('nukeCanvas');
 const ctx = canvas.getContext('2d');
 
-// --- DYNAMIC RESIZING ---
+// --- HD MOBILE SETUP ---
 function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -23,129 +23,128 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+// These controls keep the effect small and at the bottom
+const SCALE = 1.8; 
+const POS_X = () => canvas.width / 2;
+const POS_Y = () => canvas.height - 80;
+
 class Particle {
-    constructor(px, py, type, parent = null, customVel = null) {
-        // All coordinates and velocities stored as percentages (0.0 - 1.0)
-        this.px = px; 
-        this.py = py;
-        this.originPX = px;
-        this.originPY = py;
+    constructor(x, y, type, parent = null, customVel = null) {
+        this.x = x; 
+        this.y = y;
+        this.originX = x;
+        this.originY = y;
         this.type = type;
         this.parent = parent;
         this.life = 1.0;
         
-        // Dynamic Decay
-        this.decay = (type === 'redPulse' ? 0.004 : 0.007) + Math.random() * 0.01;
-        
-        // Base size relative to screen width
-        this.baseSize = 0.01 + Math.random() * 0.01;
-
-        if (customVel) {
-            this.pvx = customVel.x; 
-            this.pvy = customVel.y;
-        } else {
-            const angle = Math.random() * Math.PI * 2;
-            const force = 0.002 + Math.random() * 0.005;
-            this.pvx = Math.cos(angle) * force;
-            this.pvy = Math.sin(angle) * force;
-        }
+        // Decay tuned for long life
+        this.decay = (type === 'redPulse' ? 0.0035 : 0.007) + Math.random() * 0.01;
+        this.size = Math.random() * 3 + 2;
 
         this.points = [];
         const sides = 5 + Math.floor(Math.random() * 3);
         for(let i=0; i<sides; i++) {
             const angle = (i / sides) * Math.PI * 2;
-            this.points.push({ x: Math.cos(angle), y: Math.sin(angle) });
+            const dist = 0.4 + Math.random() * 0.6;
+            this.points.push({ x: Math.cos(angle) * dist, y: Math.sin(angle) * dist });
+        }
+
+        if (customVel) {
+            this.vx = customVel.x;
+            this.vy = customVel.y;
+        } else {
+            const angle = Math.random() * Math.PI * 2;
+            const force = Math.random() * 4;
+            this.vx = Math.cos(angle) * force;
+            this.vy = Math.sin(angle) * force;
         }
     }
 
     update() {
-        this.px += this.pvx;
-        this.py += this.pvy;
+        this.x += this.vx;
+        this.y += this.vy;
 
-        // --- THE CRIMSON PULSE: RISING & SNAPPING ---
         if (this.type === 'redPulse') {
-            if (this.life > 0.45) {
-                this.pvx *= 0.92;
-                this.pvy *= 0.92;
-                this.baseSize += 0.0005;
-                // Inherit the rise from the parent center
-                if (this.parent) this.py -= 0.0015; 
-            } else {
-                // SNAP-BACK to the center (which has risen)
-                const targetPX = 0.5;
-                const targetPY = this.parent ? this.parent.pulsePY : this.py;
-                const dx = targetPX - this.px;
-                const dy = targetPY - this.py;
+            // PHASE 1: Billowing & Stepping Up
+            if (this.life > 0.4) {
+                this.vx *= 0.92; 
+                this.vy *= 0.92;
+                this.size += 0.14;
+                // Move up with the center
+                if (this.parent) this.y -= 0.7; 
+            } 
+            // PHASE 2: Faster Final Suction
+            else {
+                const targetY = this.parent ? this.parent.pulseY : this.y;
+                const dx = -this.x;
+                const dy = targetY - this.y;
                 
-                const pull = 0.15 + (0.4 * (1 - this.life));
-                this.pvx += dx * pull;
-                this.pvy += dy * pull;
-                this.pvx *= 0.7; 
-                this.pvy *= 0.7;
-                this.baseSize *= 0.94;
+                // Acceleration increases as life ends
+                const pullPower = 0.15 + (0.5 * (1 - this.life));
+                this.vx += dx * pullPower;
+                this.vy += dy * pullPower;
                 
-                if (Math.abs(dx) < 0.005 && Math.abs(dy) < 0.005) this.life = 0;
+                this.vx *= 0.6; this.vy *= 0.6;
+                this.size *= 0.9;
+                
+                if (Math.abs(dx) < 2 && Math.abs(dy) < 2) this.life = 0;
                 this.decay = 0.05;
             }
         } 
         else if (this.type === 'coreJet') {
-            this.pvy -= 0.003;
-            this.pvx *= 0.94;
-            if (this.py < 0.15) this.decay = 0.1;
+            this.vy -= 0.18;
+            this.vx *= 0.94;
+            this.vy *= 0.94;
+            if (this.y < -350) this.decay = 0.1;
         } 
         else if (this.type === 'smoke' || this.type === 'fire') {
-            const dx = this.px - 0.5;
-            const dy = 0.9 - this.py; // Distance from ground
-
-            // --- TOROIDAL DISK LOGIC ---
-            if (dy > 0.35) { // When it hits the "Cap Zone"
-                const maxRadius = 0.32; // Limit width to 32% of screen
-                if (Math.abs(dx) < maxRadius) {
-                    this.pvx += (dx * 0.003); // Push out
-                    this.pvy *= 0.94; // Slow down vertical rise
+            // --- TOROIDAL DISK CAP LOGIC ---
+            const distFromCenter = Math.abs(this.x);
+            const capHeight = -220; // Where the disk forms
+            
+            if (this.y < capHeight) {
+                const maxRadius = 120; // Arbitrary diameter
+                if (distFromCenter < maxRadius) {
+                    this.vx += (this.x * 0.02); // Expand out
+                    this.vy *= 0.92; // Slow down vertical
                 } else {
-                    this.pvx -= (dx * 0.02); // Suck back to center
-                    this.pvy += 0.002; // Sink to create the "roll"
+                    this.vx -= (this.x * 0.08); // Hit the edge, pull back
+                    this.vy += 0.5; // Sink back down
                 }
             } else {
-                this.pvy -= 0.001; // Rise up the stem
+                this.vy -= 0.15; // Rise up the stem
             }
-            this.pvx *= 0.98;
-            this.pvy *= 0.98;
-            if (this.type === 'fire') this.baseSize += 0.0004;
+            this.vx *= 0.96;
+            this.vy *= 0.96;
+            if (this.type === 'fire') this.size += 0.15;
         }
 
         this.life -= this.decay;
     }
 
-    draw() {
+    draw(ctx) {
         if (this.life <= 0) return;
-        
-        // Convert normalized % back to current screen pixels
-        const x = this.px * canvas.width;
-        const y = this.py * canvas.height;
-        const screenRef = Math.min(canvas.width, canvas.height);
-        const size = this.baseSize * screenRef;
-
         ctx.save();
-        ctx.translate(x, y);
+        ctx.translate(this.x, this.y);
 
         let r, g, b, alpha = this.life;
         if (this.type === 'redPulse') {
             ctx.globalCompositeOperation = 'lighter';
-            r=255; g=20; b=0;
+            r = 255; g = 20; b = 0;
         } else if (this.type === 'fire') {
             ctx.globalCompositeOperation = 'lighter';
-            r=255; g=120 * this.life; b=20;
+            r = 255; g = 110 * this.life; b = 20;
         } else {
-            r=g=b=85 * this.life; alpha *= 0.7;
+            r = g = b = 80 * this.life; alpha *= 0.7;
         }
 
         ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
         ctx.beginPath();
+        const s = this.size;
         this.points.forEach((p, i) => {
-            if (i === 0) ctx.moveTo(p.x * size, p.y * size);
-            else ctx.lineTo(p.x * size, p.y * size);
+            if (i === 0) ctx.moveTo(p.x * s, p.y * s);
+            else ctx.lineTo(p.x * s, p.y * s);
         });
         ctx.fill();
         ctx.restore();
@@ -158,49 +157,49 @@ class Explosion {
         this.frame = 0;
         this.flash = 1.0;
         this.shockSize = 0;
-        this.pulsePY = 0.65; // Starting center Y (65% down)
+        this.pulseY = -250; // Initial center
     }
 
     update() {
         this.frame++;
-        this.flash *= 0.9;
-        this.shockSize += 0.015;
+        this.flash *= 0.88;
+        this.shockSize += 14;
 
-        // --- THE "STEP UP" ---
-        // The center of the crimson effect rises over time
-        if (this.frame > 95 && this.frame < 250) {
-            this.pulsePY -= 0.0015; 
+        // Pulse Step Up
+        if (this.frame > 95 && this.frame < 220) {
+            this.pulseY -= 0.7; 
         }
 
+        // Initial Blast
         if (this.frame < 12) {
-            for(let i=0; i<8; i++) this.particles.push(new Particle(0.5, 0.9, 'fire'));
+            for(let i=0; i<15; i++) this.particles.push(new Particle(0, 0, 'plasma'));
         }
 
-        if (this.frame > 5 && this.frame < 90 && this.frame % 2 === 0) {
-            this.particles.push(new Particle(0.5, 0.9, 'coreJet', null, {x: (Math.random()-0.5)*0.002, y: -0.01}));
+        // Core White Jet
+        if (this.frame > 4 && this.frame < 85 && this.frame % 2 === 0) {
+            this.particles.push(new Particle(0, 0, 'coreJet', null, {x: (Math.random()-0.5), y: -10}));
         }
 
-        // CRIMSON PULSE SPAWN
+        // Crimson Pulse
         if (this.frame === 95) {
             for(let i=0; i<280; i++) {
                 const a = Math.random() * Math.PI * 2;
-                const s = 0.004 + Math.random() * 0.01;
-                this.particles.push(new Particle(0.5, this.pulsePY, 'redPulse', this, {x:Math.cos(a)*s, y:Math.sin(a)*s}));
+                const s = 3 + Math.random() * 6;
+                this.particles.push(new Particle(0, this.pulseY, 'redPulse', this, {x: Math.cos(a)*s, y: Math.sin(a)*s}));
             }
         }
         
-        // SPEW CENTER (Continuous red fountain)
-        if (this.frame > 100 && this.frame < 220 && this.frame % 3 === 0) {
-            for(let i=0; i<3; i++) {
-                this.particles.push(new Particle(0.5, this.pulsePY, 'redPulse', this));
-            }
+        // Spew from rising center
+        if (this.frame > 100 && this.frame < 220 && this.frame % 4 === 0) {
+            for(let i=0; i<4; i++) this.particles.push(new Particle(0, this.pulseY, 'redPulse', this));
         }
 
-        // STEM & MUSHROOM CAP
-        if (this.frame > 15 && this.frame < 280) {
-            if (this.frame % 2 === 0) {
-                // Rising fire/smoke
-                this.particles.push(new Particle(0.5 + (Math.random()-0.5)*0.03, 0.9 - (this.frame*0.003), 'smoke'));
+        // Stem & Mushroom Cap
+        if (this.frame > 10 && this.frame < 250) {
+            for(let i=0; i<4; i++) this.particles.push(new Particle((Math.random()-0.5)*15, -(this.frame * 1.5), 'fire'));
+            if (this.frame > 40) {
+                const capY = Math.max(-300, -(this.frame * 2.2));
+                for(let i=0; i<6; i++) this.particles.push(new Particle((Math.random()-0.5)*50, capY, 'smoke'));
             }
         }
 
@@ -210,25 +209,22 @@ class Explosion {
         });
     }
 
-    draw() {
-        // --- RESPONSIVE SHOCKWAVE ---
-        if (this.frame < 40) {
-            const rx = this.shockSize * canvas.width;
-            const ry = this.shockSize * 0.2 * canvas.height;
-            ctx.strokeStyle = `rgba(255, 255, 255, ${0.45 - this.frame/40})`;
+    draw(ctx) {
+        // ELLIPSE SHOCKWAVE (Kept small and proportional)
+        if (this.frame < 35) {
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.45 - this.frame/35})`;
             ctx.lineWidth = 3;
             ctx.beginPath();
-            ctx.ellipse(canvas.width*0.5, canvas.height*0.9, rx, ry, 0, 0, Math.PI * 2);
+            ctx.ellipse(0, 0, this.shockSize, this.shockSize * 0.18, 0, 0, Math.PI * 2);
             ctx.stroke();
         }
 
-        // Draw particles (Sorted for smoke depth)
         this.particles.sort((a,b) => a.type === 'smoke' ? -1 : 1);
-        this.particles.forEach(p => p.draw());
+        this.particles.forEach(p => p.draw(ctx));
 
         if (this.flash > 0.01) {
             ctx.fillStyle = `rgba(255,255,255,${this.flash})`;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillRect(-canvas.width, -canvas.height*2, canvas.width*2, canvas.height*2);
         }
     }
 }
@@ -237,8 +233,16 @@ let nuke = new Explosion();
 function loop() {
     ctx.fillStyle = '#050505';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    // Position the effect at bottom center and scale it
+    ctx.translate(POS_X(), POS_Y());
+    ctx.scale(SCALE, SCALE);
+
     nuke.update();
-    nuke.draw();
+    nuke.draw(ctx);
+    ctx.restore();
+
     if (nuke.frame > 550 && nuke.particles.length === 0) nuke = new Explosion();
     requestAnimationFrame(loop);
 }
